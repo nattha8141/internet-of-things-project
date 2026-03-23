@@ -214,9 +214,39 @@ Beyond the sensor data, manual visual inspection revealed a striking difference 
 
 This observation, while outside the scope of the automated sensor system, provides a valuable qualitative complement to the quantitative photoresistor data. It suggests that a future iteration could incorporate a **colour sensor (e.g., TCS34725)** to quantify leaf chlorophyll content as an additional growth metric — linking light wavelength not just to stem elongation but also to photosynthetic development.
 
-#### 2.3 Plant Movement Discovery
+#### 2.3 Geometric Height Estimation Model
 
-The control group's oscillatory pattern reveals **circumnutation** — the natural helical movement of growing plant stems. In this experiment, the movement is amplified by **phototropism** toward faint light leaking from the adjacent blue-light chamber. As the sprouts bend toward the light, they move out of the sensor's optical path (reading drops); as they grow further and overshoot or sway back, they re-enter the path (reading rises). This creates the characteristic up-and-down oscillation observed in the data.
+Since no direct height measurement sensor was available, we developed a **geometric model** to estimate plant height from ADC readings using the physical setup dimensions.
+
+**Model**: The LED is mounted at the top corner of each chamber (~11 cm above the box floor), and the photosensor sits at the container rim (~4 cm). The light path travels diagonally from LED to sensor. As the plant grows vertically from the container rim, it progressively blocks this light cone. Using trigonometry:
+
+1. Calculate the line-of-sight height at the plant's horizontal position: `h = H_sensor + (H_led - H_sensor) × (X_plant / D_horizontal) = 7.5 cm`
+2. The direct block height above the container rim: `7.5 - 4.0 = 3.5 cm`
+3. Accounting for LED cone spread (factor 1.5×): **H_full_block ≈ 5.2 cm**
+4. `obstruction_ratio = (ADC - baseline) / (4095 - baseline)` → range [0, 1]
+5. `estimated_height = obstruction_ratio × 5.2 cm`
+
+| Group | Estimated Final Height | Peak Height | Avg Growth Rate |
+|-------|----------------------|-------------|-----------------|
+| Blue | 5.2 cm (saturated) | ≥5.2 cm | Fastest — reached sensor limit in ~3 days |
+| Green | ~0.4 cm | ~0.6 cm | Slow — but underestimated due to green light leak |
+| Control | ~0 cm (oscillating) | ~2.5 cm | Movement dominates — not a valid height reading |
+
+**Limitations**: The linear obstruction assumption is a first-order approximation. Plant density, leaf spread, and lateral bending all affect the actual ADC-to-height relationship. The model is most accurate for the blue group (predominately vertical growth) and least reliable for the control group (dominated by lateral movement). The geometry parameters (LED height, distances) are estimated from photographs and can be refined with direct measurement.
+
+![Geometric Model](../images/geometric_model.png)
+*Figure: Left — ADC to estimated height calibration curve for each channel. Right — Side-view chamber geometry showing LED, sensor, and plant positions.*
+
+![Estimated Height Growth](../images/estimated_height_growth.png)
+*Figure: Estimated plant height over time (top) and growth rate in cm/hour (bottom), derived from the geometric model.*
+
+#### 2.4 Plant Movement and ADC Drop Events
+
+All three groups exhibit periodic drops in ADC readings. Crucially, **none of these drops indicate the plant shrinking** — they are all caused by different forms of plant movement:
+
+**Control group (dark)**: The sprouts grow in the dark but exhibit **phototropism toward blue light leaking** from the adjacent chamber. This bending moves the sprouts out of the sensor's optical path (reading drops). New growth reaches back into the path (reading rises), creating the oscillatory pattern. This is classical circumnutation amplified by directional light cues.
+
+**Blue and Green groups (illuminated)**: The sprouts grow *toward* the light source (the LED, which is also the treatment light). Initially, upward growth blocks more of the sensor path (ADC rises). However, once the stems **outgrow the chamber space**, they become top-heavy and disarray — flopping over, tangling with neighbours, or bending against the chamber walls. When this happens, leaves and stems that were previously blocking the sensor path shift aside, causing sudden ADC drops. New growth then fills the gaps, and the reading recovers. This explains the intermittent spikes and drops seen particularly in the blue channel after it first saturated — the plant kept growing but periodically rearranging itself within the confined space.
 
 Detrending and FFT analysis of the control signal shows spectral energy concentrated near a **~12-hour period**, suggesting the sprouts have a semi-diurnal movement cycle. This could relate to internal circadian rhythms or the periodicity of watering events.
 

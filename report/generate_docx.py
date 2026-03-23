@@ -275,8 +275,30 @@ def main():
             ['Control', 'Yellowish, etiolated', 'No light stimulus for chlorophyll production'],
         ])
 
+    # Geometric Height Model
+    add_para(doc, 'Geometric Height Estimation:', bold=True)
+    add_para(doc,
+        'Since no direct height sensor was available, we estimated plant height from ADC readings using '
+        'the chamber geometry. The LED sits at ~11 cm height, the photosensor at ~4 cm. Using trigonometry, '
+        'we calculate that full light-path blockage (ADC = 4095) corresponds to a plant height of ~5.2 cm '
+        'above the container rim. The obstruction ratio maps linearly to estimated height.')
+
+    add_table(doc,
+        ['Group', 'Est. Final Height', 'Peak Height', 'Notes'],
+        [
+            ['Blue', '5.2 cm (saturated)', '>=5.2 cm', 'Reached sensor limit in ~3 days'],
+            ['Green', '~0.4 cm', '~0.6 cm', 'Underestimated due to green light leak'],
+            ['Control', '~0 cm (oscillating)', '~2.5 cm', 'Movement dominates reading'],
+        ])
+
+    add_image_with_caption(doc, IMAGE_DIR + 'geometric_model.png',
+        'Figure 4: ADC-to-height calibration curve (left) and chamber side-view geometry (right).')
+
+    add_image_with_caption(doc, IMAGE_DIR + 'estimated_height_growth.png',
+        'Figure 5: Estimated plant height over time and growth rate in cm/hour from geometric model.')
+
     add_image_with_caption(doc, IMAGE_DIR + 'plant_movement_oscillation.png',
-        'Figure 4: Detrended signals revealing plant oscillation, especially prominent in the control group.')
+        'Figure 6: Detrended signals revealing plant oscillation, especially prominent in the control group.')
 
     add_image_with_caption(doc, IMAGE_DIR + 'daily_growth.png',
         'Figure 5: Daily growth comparison across the three groups.')

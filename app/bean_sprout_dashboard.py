@@ -74,7 +74,7 @@ if st.sidebar.button("Refresh Data"):
     st.cache_data.clear()
     st.rerun()
 
-view_mode = st.sidebar.radio("View Mode", ["Dashboard", "Growth Explorer", "Movement Analysis", "Environmental", "Compare & Stats"])
+view_mode = st.sidebar.radio("View Mode", ["Dashboard", "Growth Explorer", "Height Estimation", "Movement Analysis", "Environmental", "Compare & Stats"])
 
 show_raw = st.sidebar.checkbox("Show raw data (before cleaning)", False)
 
@@ -181,6 +181,107 @@ elif view_mode == "Growth Explorer":
     fig2.update_layout(barmode="group", height=400, template="plotly_white",
                        title="Net ADC Change Per Day", yaxis_title="ADC Change")
     st.plotly_chart(fig2, use_container_width=True)
+
+# =============================================
+# HEIGHT ESTIMATION
+# =============================================
+elif view_mode == "Height Estimation":
+    st.subheader("Geometric Height Estimation Model")
+    st.markdown("""
+    Since no direct height sensor is available, we estimate plant height using the **physical geometry**
+    of the chamber. The LED is at the top corner, the photosensor is lower — as the plant grows upward,
+    it blocks more of the light path. Using trigonometry, we map ADC readings to estimated cm.
+    """)
+
+    # Adjustable geometry parameters
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Geometry Parameters")
+    H_led = st.sidebar.number_input("LED height (cm)", value=11.0, step=0.5)
+    H_sensor = st.sidebar.number_input("Sensor height (cm)", value=4.0, step=0.5)
+    D_horizontal = st.sidebar.number_input("Horizontal distance (cm)", value=10.0, step=0.5)
+    H_base = st.sidebar.number_input("Container rim height (cm)", value=4.0, step=0.5)
+    X_plant = st.sidebar.number_input("Plant position from sensor (cm)", value=5.0, step=0.5)
+    cone_factor = st.sidebar.slider("Cone spread factor", 1.0, 3.0, 1.5, 0.1)
+
+    # Calculate full block height
+    h_line_at_plant = H_sensor + (H_led - H_sensor) * (X_plant / D_horizontal)
+    H_full_block = (h_line_at_plant - H_base) * cone_factor
+    ADC_MAX = 4095
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Line-of-sight at plant", f"{h_line_at_plant:.1f} cm")
+    col2.metric("Full block height", f"{H_full_block:.1f} cm")
+    col3.metric("Growth above rim for saturation", f"{H_full_block:.1f} cm")
+
+    # Compute estimated heights
+    baselines = {
+        "Green": df_filtered["Green"].iloc[:10].mean(),
+        "Blue": df_filtered["Blue"].iloc[:10].mean(),
+        "Control": df_filtered["Control"].iloc[:10].mean()
+    }
+
+    height_data = df_filtered.copy()
+    for ch in ["Green", "Blue", "Control"]:
+        ratio = ((height_data[ch] - baselines[ch]) / (ADC_MAX - baselines[ch])).clip(0, 1)
+        height_data[f"{ch}_cm"] = ratio * H_full_block
+
+    # Height plot
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        subplot_titles=("Estimated Plant Height (cm)", "Estimated Growth Rate (cm/hour)"),
+                        vertical_spacing=0.12)
+
+    for ch, color, name in [("Green_cm", "#2ca02c", "Green"), ("Blue_cm", "#1f77b4", "Blue"), ("Control_cm", "#555555", "Control")]:
+        fig.add_trace(go.Scatter(x=height_data["Timestamp"], y=height_data[ch], name=name,
+                                 line=dict(color=color, width=1.5)), row=1, col=1)
+
+    fig.add_hline(y=H_full_block, line_dash="dot", line_color="red",
+                  annotation_text=f"Sensor limit ({H_full_block:.1f} cm)", row=1, col=1)
+
+    # Growth rate in cm/hour
+    for ch in ["Green", "Blue", "Control"]:
+        height_data[f"{ch}_rate_cm"] = height_data[f"{ch}_cm"].diff(4) / 1.0  # 4 samples = 1 hour
+        rate_smooth = height_data[f"{ch}_rate_cm"].rolling(8, center=True, min_periods=1).mean()
+        color = "#2ca02c" if ch == "Green" else "#1f77b4" if ch == "Blue" else "#555555"
+        fig.add_trace(go.Scatter(x=height_data["Timestamp"], y=rate_smooth, name=f"{ch} rate",
+                                 line=dict(color=color, width=1.2), showlegend=False), row=2, col=1)
+
+    fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
+    fig.update_layout(height=700, template="plotly_white")
+    fig.update_yaxes(title_text="Height (cm)", row=1, col=1)
+    fig.update_yaxes(title_text="Rate (cm/hour)", row=2, col=1)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Summary metrics
+    st.subheader("Height Summary")
+    cols = st.columns(3)
+    for i, (ch, name) in enumerate([("Green", "Green Light"), ("Blue", "Blue Light"), ("Control", "Control (Dark)")]):
+        h_final = height_data[f"{ch}_cm"].iloc[-1]
+        h_max = height_data[f"{ch}_cm"].max()
+        rate = height_data[f"{ch}_rate_cm"].dropna()
+        pos_rate = rate[rate > 0]
+        with cols[i]:
+            st.metric(f"{name} — Current", f"{h_final:.1f} cm")
+            st.metric(f"{name} — Peak", f"{h_max:.1f} cm")
+            st.metric(f"{name} — Avg growth rate", f"{pos_rate.mean():.3f} cm/h" if len(pos_rate) > 0 else "N/A")
+
+    # ADC to height calibration curve
+    st.subheader("ADC to Height Calibration")
+    adc_range = np.linspace(3400, 4095, 200)
+    fig_cal = go.Figure()
+    for ch, color in [("Green", "#2ca02c"), ("Blue", "#1f77b4"), ("Control", "#555555")]:
+        bl = baselines[ch]
+        ratio = np.clip((adc_range - bl) / (ADC_MAX - bl), 0, 1)
+        height = ratio * H_full_block
+        fig_cal.add_trace(go.Scatter(x=adc_range, y=height, name=f"{ch} (baseline={bl:.0f})",
+                                     line=dict(color=color, width=2)))
+    fig_cal.add_vline(x=4095, line_dash="dot", line_color="red", annotation_text="ADC Max")
+    fig_cal.update_layout(xaxis_title="ADC Reading", yaxis_title="Estimated Height (cm)",
+                          height=400, template="plotly_white", title="ADC → Height Calibration Curve")
+    st.plotly_chart(fig_cal, use_container_width=True)
+
+    st.info(f"**Model**: height = obstruction_ratio x {H_full_block:.1f} cm. "
+            f"Adjust the geometry parameters in the sidebar to refine. "
+            f"The control group's negative values reflect phototropic bending, not shrinkage.")
 
 # =============================================
 # MOVEMENT ANALYSIS
